@@ -1,0 +1,62 @@
+# Python virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Python byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Common data file formats that may be large or unnecessary to track
+*.pkl
+*.h5
+*.parquet
+*.csv
+*.npy
+*.npz
+
+# Log files
+logs/
+*.log
+
+# Cache directories
+.cache/
+.pytest_cache/
+
+# Temporary files
+*.tmp
+tmp/
+
+# Model files (if you don't want to track large machine learning models)
+# Uncomment if needed
+# *.pt
+# *.pth
+# *.weights
+# *.pb
+# *.onnx
+# *.tflite
+
+# Data directories (only if you don't want to track the data)
+# Uncomment if you don't want to track data files
+# Data/
