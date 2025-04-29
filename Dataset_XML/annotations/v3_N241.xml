@@ -1,0 +1,26 @@
+<annotation>
+	<folder>d</folder>
+	<filename>v3_N241.jpeg</filename>
+	<path>c:\ULB\MA1\Proj\PROJ-H419\Car-plate-detection\Dataset_XML\images\v3_N241.jpeg</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>800</width>
+		<height>600</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>number_plate</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>251</xmin>
+			<ymin>308</ymin>
+			<xmax>542</xmax>
+			<ymax>385</ymax>
+		</bndbox>
+	</object>
+</annotation>
