@@ -81,7 +81,7 @@ def create_training_callbacks(checkpoint_path=None, early_stopping=True, patienc
     return callbacks
 
 
-def train_model(model, X_train, y_train, X_val=None, y_val=None, epochs=50, batch_size=16,
+def train_model(model, X_train, y_train, X_val=None, y_val=None, epochs=50, batch_size=32,
                callbacks=None, custom_scheduler=None, verbose=1):
     """
     Train a license plate detection model.
@@ -125,7 +125,7 @@ def train_model(model, X_train, y_train, X_val=None, y_val=None, epochs=50, batc
 
 
 def train_with_augmentation(model, X_train, y_train, X_val=None, y_val=None, 
-                           augment_fn=None, epochs=50, batch_size=16, callbacks=None):
+                           augment_fn=None, epochs=50, batch_size=32, callbacks=None):
     """
     Train a license plate detection model with on-the-fly data augmentation.
     
