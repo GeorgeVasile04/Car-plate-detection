@@ -15,8 +15,8 @@ from license_plate_detection.models.detector import (
 
 from license_plate_detection.data.loader import (
     get_data_path,
-    load_dataset,
-    preprocess_dataset,
+    load_license_plate_dataset,
+    preprocess_license_plate_dataset,
     split_dataset
 )
 
@@ -32,11 +32,9 @@ from license_plate_detection.utils.visualization import (
     plot_training_history
 )
 
-# Import entry points
-from license_plate_detection.main import (
-    load_and_prepare_data,
-    create_model_by_name,
-    train,
-    evaluate,
-    predict
+# Import helper functions (previously in main.py)
+from license_plate_detection.utils.helpers import (
+    detect_license_plate,
+    load_and_prepare_model,
+    load_and_prepare_data
 )

@@ -11,8 +11,13 @@ from pathlib import Path
 from sklearn.model_selection import train_test_split
 import albumentations as A
 import pandas as pd  # Adding pandas import for DataFrame operations
+
+# Remove circular import to prevent code execution twice
+# Only import specific functions, not the whole module
 from license_plate_detection.data.augmentation import augment_data, visualize_augmentation
 
+# Debug print flag - set to False to suppress redundant messages
+DEBUG_PRINTS = False
 
 def get_data_path():
     """
@@ -160,85 +165,189 @@ def load_image(img_path, target_size=None):
     
     return img
 
-
-def load_dataset(images_dir, annotations_dir, annotation_format='xml', target_size=(224, 224), test_size=0.2, random_state=42):
+def load_license_plate_dataset(annotations_dir, images_dir):
     """
-    Load and preprocess a dataset of license plate images and annotations.
+    Load a dataset of license plate images and annotations into a DataFrame.
+    This function has a single responsibility: loading data into a DataFrame.
     
     Args:
+        annotations_dir: Directory containing annotations in XML format
         images_dir: Directory containing images
-        annotations_dir: Directory containing annotations
-        annotation_format: Format of annotations ('xml' or 'yolo')
-        target_size: Target size for images (height, width)
-        test_size: Proportion of the dataset to include in the test split
-        random_state: Random state for reproducibility
         
     Returns:
-        tuple: (X_train, y_train, X_test, y_test) arrays
+        pandas.DataFrame: DataFrame with columns [image_path, x, y, w, h, plate_text]
     """
-    images_dir = Path(images_dir)
+    # Convert to Path objects for consistency
     annotations_dir = Path(annotations_dir)
+    images_dir = Path(images_dir)
     
-    # Get list of image files
-    image_files = []
-    valid_extensions = ['.jpg', '.jpeg', '.png']
-    for ext in valid_extensions:
-        image_files.extend(list(images_dir.glob(f'*{ext}')))
+    # Prepare a list to collect the dataset records
+    dataset = []
+    skipped = 0
     
+    # Loop through all files in the annotations folder
+    for file in annotations_dir.iterdir():
+        if file.suffix == ".xml":
+            try:
+                tree = ET.parse(file)
+                root = tree.getroot()
+                
+                # Get filename from root
+                try:
+                    img_name = root.find('filename').text
+                    img_path = images_dir / img_name
+                    
+                    if not img_path.exists():
+                        # Try alternative ways to find the image
+                        alternative_path = images_dir / f"{file.stem.replace('data_', '')}.jpg"
+                        if alternative_path.exists():
+                            img_path = alternative_path
+                        else:
+                            if DEBUG_PRINTS:
+                                print(f"Image not found for annotation: {img_name}")
+                            skipped += 1
+                            continue
+                except AttributeError:
+                    if DEBUG_PRINTS:
+                        print(f"Could not find filename in {file}, skipping")
+                    skipped += 1
+                    continue
+                
+                for member in root.findall('object'):
+                    try:
+                        # Extract bounding box coordinates
+                        bbox = member.find('bndbox')
+                        xmin = int(bbox.find('xmin').text)
+                        ymin = int(bbox.find('ymin').text)
+                        xmax = int(bbox.find('xmax').text)
+                        ymax = int(bbox.find('ymax').text)
+                        
+                        # Calculate width and height
+                        w = xmax - xmin
+                        h = ymax - ymin
+                        
+                        # Try to find plate_text in different elements
+                        plate_text = "Unknown"  # Default if no text found
+                        
+                        # Check multiple possible elements for plate text
+                        for text_elem_name in ['n', 'name', 'license_text', 'plate_text']:
+                            text_elem = member.find(text_elem_name)
+                            if text_elem is not None and text_elem.text:
+                                plate_text = text_elem.text
+                                break
+                        
+                        dataset.append({
+                            "image_path": str(img_path),
+                            "x": xmin,
+                            "y": ymin,
+                            "w": w,
+                            "h": h,
+                            "plate_text": plate_text
+                        })
+                    except Exception as e:
+                        if DEBUG_PRINTS:
+                            print(f"Error processing object in {file}: {e}")
+            except Exception as e:
+                if DEBUG_PRINTS:
+                    print(f"Error processing {file}: {e}")
+                skipped += 1
+    
+    if DEBUG_PRINTS:
+        print(f"Loaded {len(dataset)} annotations, skipped {skipped} files")
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(dataset)
+    return df
+
+
+def preprocess_license_plate_dataset(df, image_size=(224, 224)):
+    """
+    Preprocess a dataset of license plate images and annotations.
+    This function has a single responsibility: converting DataFrame data to model-ready tensors.
+    
+    Args:
+        df: DataFrame with columns ['image_path', 'x', 'y', 'w', 'h']
+        image_size: Target size for images (width, height)
+        
+    Returns:
+        tuple: (X, y) where X is normalized images and y is normalized bounding boxes
+    """
     # Prepare data containers
     X = []
     y = []
-    skipped = 0
     
-    # Process each image
-    for img_path in image_files:
+    # Process each row in the DataFrame
+    for _, row in df.iterrows():
         try:
-            # Get corresponding annotation file
-            if annotation_format == 'xml':
-                anno_path = annotations_dir / f"data_{img_path.stem}.xml"
-                if not anno_path.exists():
-                    anno_path = annotations_dir / f"{img_path.stem}.xml"
-            else:  # YOLO format
-                anno_path = annotations_dir / f"{img_path.stem}.txt"
-            
-            if not anno_path.exists():
-                print(f"Annotation not found for {img_path.name}, skipping")
-                skipped += 1
-                continue
-            
             # Load image
-            img = load_image(img_path, target_size)
+            img_path = row['image_path']
+            img = cv2.imread(img_path)
             
-            # Parse annotation
-            if annotation_format == 'xml':
-                anno_data = parse_annotation_xml(anno_path)
-            else:
-                anno_data = parse_yolo_annotation(anno_path, target_size[1], target_size[0])
-            
-            # Check if license plate was found
-            if anno_data['box'] is None:
-                print(f"No license plate found in {anno_path.name}, skipping")
-                skipped += 1
+            if img is None:
+                if DEBUG_PRINTS:
+                    print(f"Could not read image: {img_path}")
                 continue
+                
+            # Get original dimensions
+            orig_h, orig_w = img.shape[:2]
+            
+            # Convert from BGR to RGB
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            
+            # Resize image
+            img = cv2.resize(img, image_size)
+            
+            # Normalize pixel values to [0, 1]
+            img = img.astype(np.float32) / 255.0
+            
+            # Get bounding box
+            x, y_coord, w, h = row['x'], row['y'], row['w'], row['h']
+            
+            # Normalize bounding box coordinates
+            x_norm = x / orig_w
+            y_norm = y_coord / orig_h
+            w_norm = w / orig_w
+            h_norm = h / orig_h
             
             # Add to dataset
             X.append(img)
-            y.append(anno_data['box'])
+            y.append([x_norm, y_norm, w_norm, h_norm])
             
         except Exception as e:
-            print(f"Error processing {img_path}: {e}")
-            skipped += 1
+            if DEBUG_PRINTS:
+                print(f"Error processing {row['image_path']}: {e}")
     
-    print(f"Loaded {len(X)} images, skipped {skipped} images")
+    if DEBUG_PRINTS:
+        print(f"Processed {len(X)} images")
     
     # Convert to numpy arrays
     X = np.array(X)
     y = np.array(y)
     
-    # Split into train and test sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    return X, y
+
+
+def split_dataset(X, y, test_size=0.2, random_state=42):
+    """
+    Split a dataset into training and validation sets.
     
-    return X_train, y_train, X_test, y_test
+    Args:
+        X: Image data
+        y: Bounding box labels
+        test_size: Proportion of the dataset to include in the validation split
+        random_state: Random state for reproducibility
+        
+    Returns:
+        tuple: (X_train, X_val, y_train, y_val)
+    """
+    # Use sklearn's train_test_split to split the data
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=test_size, random_state=random_state
+    )
+    
+    print(f"Training samples: {len(X_train)}, Validation samples: {len(X_val)}")
+    
+    return X_train, X_val, y_train, y_val
 
 
 def create_data_augmentation_pipeline():
@@ -336,89 +445,3 @@ def create_tf_dataset(X, y, batch_size=16, augment=False, shuffle=True, repeat=F
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
     
     return dataset
-
-
-def preprocess_dataset(df, image_size=(224, 224)):
-    """
-    Preprocess a dataset of license plate images and annotations in DataFrame format.
-    
-    Args:
-        df: DataFrame with columns ['image_path', 'x', 'y', 'w', 'h']
-        image_size: Target size for images (width, height)
-        
-    Returns:
-        tuple: (X, y) where X is normalized images and y is normalized bounding boxes
-    """
-    # Prepare data containers
-    X = []
-    y = []
-    
-    # Process each row in the DataFrame
-    for _, row in df.iterrows():
-        try:
-            # Load image
-            img_path = row['image_path']
-            img = cv2.imread(img_path)
-            
-            if img is None:
-                print(f"Could not read image: {img_path}")
-                continue
-                
-            # Get original dimensions
-            orig_h, orig_w = img.shape[:2]
-            
-            # Convert from BGR to RGB
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            
-            # Resize image
-            img = cv2.resize(img, image_size)
-            
-            # Normalize pixel values to [0, 1]
-            img = img.astype(np.float32) / 255.0
-            
-            # Get bounding box
-            x, y_coord, w, h = row['x'], row['y'], row['w'], row['h']
-            
-            # Normalize bounding box coordinates
-            x_norm = x / orig_w
-            y_norm = y_coord / orig_h
-            w_norm = w / orig_w
-            h_norm = h / orig_h
-            
-            # Add to dataset
-            X.append(img)
-            y.append([x_norm, y_norm, w_norm, h_norm])
-            
-        except Exception as e:
-            print(f"Error processing {row['image_path']}: {e}")
-    
-    print(f"Processed {len(X)} images")
-    
-    # Convert to numpy arrays
-    X = np.array(X)
-    y = np.array(y)
-    
-    return X, y
-
-
-def split_dataset(X, y, test_size=0.2, random_state=42):
-    """
-    Split a dataset into training and validation sets.
-    
-    Args:
-        X: Image data
-        y: Bounding box labels
-        test_size: Proportion of the dataset to include in the validation split
-        random_state: Random state for reproducibility
-        
-    Returns:
-        tuple: (X_train, X_val, y_train, y_val)
-    """
-    # Use sklearn's train_test_split to split the data
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=test_size, random_state=random_state
-    )
-    
-    print(f"Training samples: {len(X_train)}, Validation samples: {len(X_val)}")
-    
-    return X_train, X_val, y_train, y_val
