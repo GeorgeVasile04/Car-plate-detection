@@ -12,6 +12,35 @@ from sklearn.model_selection import train_test_split
 import albumentations as A
 
 
+def get_data_path():
+    """
+    Get the path to the dataset directory.
+    
+    Returns:
+        Path: Path object pointing to the dataset directory
+    """
+    # Try to detect if running in Colab
+    import importlib.util
+    IN_COLAB = importlib.util.find_spec("google.colab") is not None
+    
+    current_dir = os.getcwd()
+    
+    if IN_COLAB:
+        # In Colab, the dataset should be in the cloned repository
+        project_root = Path(current_dir) / "Car-plate-detection"
+        data_path = project_root / "Dataset"
+    else:
+        # If not in Colab, assume we're in the project directory
+        project_root = Path(os.getcwd()).parent
+        data_path = project_root / "Dataset"
+    
+    # Verify that the dataset exists
+    if not data_path.exists():
+        raise FileNotFoundError(f"Dataset not found at {data_path}")
+    
+    return data_path
+
+
 def parse_annotation_xml(xml_path):
     """
     Parse XML annotation file for license plate bounding box.
