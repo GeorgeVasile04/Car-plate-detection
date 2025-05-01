@@ -11,6 +11,8 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import io
 from PIL import Image
 import tensorflow as tf
+import os
+from license_plate_detection.models.losses import calculate_iou
 
 
 def draw_bounding_box(image, box, color=(0, 255, 0), thickness=2, normalized=True):
@@ -348,3 +350,131 @@ def visualize_attention_maps(model, image, layer_names=None):
     
     plt.tight_layout()
     return fig
+
+
+def visualize_prediction(image, true_box=None, pred_box=None, figsize=(10, 8), denormalize=False):
+    """
+    Visualize a prediction on an image with ground truth and predicted bounding boxes.
+    
+    Args:
+        image: Input image as numpy array (RGB format)
+        true_box: Ground truth bounding box [x, y, width, height] or None
+        pred_box: Predicted bounding box [x, y, width, height] or None
+        figsize: Figure size in inches
+        denormalize: Set to True if the image needs to be denormalized (0-1 to 0-255)
+        
+    Returns:
+        Matplotlib Figure object with the visualization
+    """
+    # Copy image to avoid modifying original
+    img = image.copy()
+    
+    # Denormalize image if needed
+    if denormalize or (img.dtype == np.float32 and np.max(img) <= 1.0):
+        img = (img * 255).astype(np.uint8)
+    
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Display image
+    ax.imshow(img)
+    
+    # Get image dimensions
+    height, width = img.shape[:2]
+    
+    # Add ground truth box if provided
+    if true_box is not None:
+        x, y, w, h = true_box
+        x1 = (x - w / 2) * width
+        y1 = (y - h / 2) * height
+        w = w * width
+        h = h * height
+        
+        rect = patches.Rectangle((x1, y1), w, h, linewidth=2, 
+                                edgecolor='green', facecolor='none', 
+                                label='Ground Truth')
+        ax.add_patch(rect)
+    
+    # Add predicted box if provided
+    if pred_box is not None:
+        x, y, w, h = pred_box
+        x1 = (x - w / 2) * width
+        y1 = (y - h / 2) * height
+        w = w * width
+        h = h * height
+        
+        rect = patches.Rectangle((x1, y1), w, h, linewidth=2, 
+                                edgecolor='blue', facecolor='none', 
+                                label='Prediction')
+        ax.add_patch(rect)
+    
+    # Add IoU information if both boxes are provided
+    if true_box is not None and pred_box is not None:
+        # Convert single boxes to batch format for the imported calculate_iou function
+        box1_batch = np.array([true_box])
+        box2_batch = np.array([pred_box])
+        iou = calculate_iou(box1_batch, box2_batch).numpy()[0]
+        ax.set_title(f"IoU: {iou:.4f}")
+    
+    # Add legend if at least one box is shown
+    if true_box is not None or pred_box is not None:
+        ax.legend()
+    
+    # Remove axis ticks
+    ax.set_xticks([])
+    ax.set_yticks([])
+    
+    plt.tight_layout()
+    return fig
+
+
+def visualize_batch_predictions(images, true_boxes=None, pred_boxes=None, indices=None, 
+                              num_samples=5, save_dir=None, filename_prefix="prediction",
+                              figsize=(12, 10)):
+    """
+    Visualize predictions for a batch of images.
+    
+    Args:
+        images: Batch of images as numpy array
+        true_boxes: Ground truth bounding boxes or None
+        pred_boxes: Predicted bounding boxes or None
+        indices: Specific indices to visualize, if None uses first num_samples
+        num_samples: Number of samples to visualize if indices not provided
+        save_dir: Directory to save visualizations, if None does not save
+        filename_prefix: Prefix for saved filenames
+        figsize: Figure size for each visualization
+        
+    Returns:
+        List of Figure objects with visualizations
+    """
+    # Determine which indices to visualize
+    if indices is None:
+        if num_samples > len(images):
+            num_samples = len(images)
+        indices = np.arange(num_samples)
+    
+    figures = []
+    
+    # Create visualizations for each selected index
+    for i, idx in enumerate(indices):
+        img = images[idx]
+        
+        # Get corresponding boxes if available
+        t_box = true_boxes[idx] if true_boxes is not None else None
+        p_box = pred_boxes[idx] if pred_boxes is not None else None
+        
+        # Create visualization
+        fig = visualize_prediction(img, t_box, p_box, figsize=figsize)
+        
+        # Save if requested
+        if save_dir is not None:
+            if not isinstance(save_dir, str):
+                save_dir = str(save_dir)
+            os.makedirs(save_dir, exist_ok=True)
+            filepath = os.path.join(save_dir, f"{filename_prefix}_{i}.png")
+            fig.savefig(filepath)
+            print(f"Saved visualization to {filepath}")
+        
+        figures.append(fig)
+    
+    return figures

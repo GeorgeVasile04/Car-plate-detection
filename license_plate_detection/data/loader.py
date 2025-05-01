@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from sklearn.model_selection import train_test_split
 import albumentations as A
+import pandas as pd  # Adding pandas import for DataFrame operations
+from license_plate_detection.data.augmentation import augment_data, visualize_augmentation
 
 
 def get_data_path():
@@ -334,3 +336,89 @@ def create_tf_dataset(X, y, batch_size=16, augment=False, shuffle=True, repeat=F
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
     
     return dataset
+
+
+def preprocess_dataset(df, image_size=(224, 224)):
+    """
+    Preprocess a dataset of license plate images and annotations in DataFrame format.
+    
+    Args:
+        df: DataFrame with columns ['image_path', 'x', 'y', 'w', 'h']
+        image_size: Target size for images (width, height)
+        
+    Returns:
+        tuple: (X, y) where X is normalized images and y is normalized bounding boxes
+    """
+    # Prepare data containers
+    X = []
+    y = []
+    
+    # Process each row in the DataFrame
+    for _, row in df.iterrows():
+        try:
+            # Load image
+            img_path = row['image_path']
+            img = cv2.imread(img_path)
+            
+            if img is None:
+                print(f"Could not read image: {img_path}")
+                continue
+                
+            # Get original dimensions
+            orig_h, orig_w = img.shape[:2]
+            
+            # Convert from BGR to RGB
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            
+            # Resize image
+            img = cv2.resize(img, image_size)
+            
+            # Normalize pixel values to [0, 1]
+            img = img.astype(np.float32) / 255.0
+            
+            # Get bounding box
+            x, y_coord, w, h = row['x'], row['y'], row['w'], row['h']
+            
+            # Normalize bounding box coordinates
+            x_norm = x / orig_w
+            y_norm = y_coord / orig_h
+            w_norm = w / orig_w
+            h_norm = h / orig_h
+            
+            # Add to dataset
+            X.append(img)
+            y.append([x_norm, y_norm, w_norm, h_norm])
+            
+        except Exception as e:
+            print(f"Error processing {row['image_path']}: {e}")
+    
+    print(f"Processed {len(X)} images")
+    
+    # Convert to numpy arrays
+    X = np.array(X)
+    y = np.array(y)
+    
+    return X, y
+
+
+def split_dataset(X, y, test_size=0.2, random_state=42):
+    """
+    Split a dataset into training and validation sets.
+    
+    Args:
+        X: Image data
+        y: Bounding box labels
+        test_size: Proportion of the dataset to include in the validation split
+        random_state: Random state for reproducibility
+        
+    Returns:
+        tuple: (X_train, X_val, y_train, y_val)
+    """
+    # Use sklearn's train_test_split to split the data
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=test_size, random_state=random_state
+    )
+    
+    print(f"Training samples: {len(X_train)}, Validation samples: {len(X_val)}")
+    
+    return X_train, X_val, y_train, y_val
