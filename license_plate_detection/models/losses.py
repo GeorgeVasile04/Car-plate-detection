@@ -74,19 +74,18 @@ def combined_detection_loss(y_true, y_pred):
         
     Returns:
         Combined loss value
-    """
-    # MSE loss for coordinate regression
-    mse_loss = tf.keras.losses.mean_squared_error(y_true, y_pred)
+    """    # MSE loss for coordinate regression - using tf.reduce_mean(tf.square()) instead of mean_squared_error
+    mse_loss = tf.reduce_mean(tf.square(y_true - y_pred))
     
     # IoU-based loss
     iou = calculate_iou(y_true, y_pred)
     iou_loss = 1.0 - tf.reduce_mean(iou)
     
     # Position loss (more weight on center coordinates)
-    position_loss = tf.keras.losses.mean_squared_error(y_true[:, :2], y_pred[:, :2]) * 2.0
+    position_loss = tf.reduce_mean(tf.square(y_true[:, :2] - y_pred[:, :2])) * 2.0
     
     # Size loss
-    size_loss = tf.keras.losses.mean_squared_error(y_true[:, 2:], y_pred[:, 2:])
+    size_loss = tf.reduce_mean(tf.square(y_true[:, 2:] - y_pred[:, 2:]))
     
     # Combine losses with weights
     combined_loss = iou_loss * 0.5 + position_loss * 0.3 + size_loss * 0.2
