@@ -14,5 +14,4 @@ from license_plate_detection.train.scheduler import (
     create_lr_scheduler,
     cosine_decay_scheduler,
     step_decay_scheduler,
-    exponential_decay_scheduler
 )
