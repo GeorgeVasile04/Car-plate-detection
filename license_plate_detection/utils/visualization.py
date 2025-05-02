@@ -75,6 +75,70 @@ def draw_bounding_box(image, box, color=(0, 255, 0), thickness=2, normalized=Tru
     return img_with_box
 
 
+def visualize_processed_sample(index=0, X=None, y=None, df=None, IMAGE_SIZE=None):
+    """
+    Visualizes a processed sample with its original and normalized versions side by side.
+    
+    Args:
+        index: Index of the sample to visualize
+        X: Array of preprocessed images
+        y: Array of normalized bounding boxes
+        df: DataFrame containing the original annotations
+        IMAGE_SIZE: Tuple of (height, width) for the target size
+    """
+    # Check if arguments are valid
+    if X is None or y is None or df is None:
+        print("Missing required arguments (X, y, df)")
+        return
+    if IMAGE_SIZE is None:
+        # Default to the first image's shape if IMAGE_SIZE isn't provided
+        if X is not None and len(X) > 0:
+            IMAGE_SIZE = (X[0].shape[0], X[0].shape[1])
+        else:
+            IMAGE_SIZE = (224, 224)  # Default fallback
+    
+    if index >= len(X) or index < 0:
+        print(f"Index {index} is out of bounds.")
+        return
+        
+    img_normalized = X[index]
+    bbox_norm = y[index]
+    original_row = df.iloc[index]
+    
+    # Load the original image
+    img_original = cv2.imread(original_row["image_path"])
+    if img_original is None:
+        print(f"Could not read image at {original_row['image_path']}")
+        return
+    img_original = cv2.cvtColor(img_original, cv2.COLOR_BGR2RGB)
+    
+    # Draw original bbox
+    x_orig, y_orig, w_orig, h_orig = original_row["x"], original_row["y"], original_row["w"], original_row["h"]
+    img_original_vis = img_original.copy()
+    cv2.rectangle(img_original_vis, (x_orig, y_orig), (x_orig + w_orig, y_orig + h_orig), (0, 255, 0), 2)
+    
+    # Prepare normalized image
+    img_vis = (img_normalized * 255).astype(np.uint8).copy()
+    x_norm = int(bbox_norm[0] * IMAGE_SIZE[0])
+    y_norm = int(bbox_norm[1] * IMAGE_SIZE[1])
+    w_norm = int(bbox_norm[2] * IMAGE_SIZE[0])
+    h_norm = int(bbox_norm[3] * IMAGE_SIZE[1])
+    cv2.rectangle(img_vis, (x_norm, y_norm), (x_norm + w_norm, y_norm + h_norm), (0, 255, 0), 2)
+    
+    # Plot side-by-side
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+    axs[0].imshow(img_original_vis)
+    axs[0].set_title('Original Image with Original BBox')
+    axs[0].axis('off')
+    
+    axs[1].imshow(img_vis)
+    axs[1].set_title('Normalized & Resized Image with BBox')
+    axs[1].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+
+
 def visualize_detection_result(image, true_box=None, pred_box=None, normalized=True):
     """
     Visualize license plate detection result.
