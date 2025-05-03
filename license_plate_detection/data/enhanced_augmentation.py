@@ -7,8 +7,36 @@ import tensorflow as tf
 import numpy as np
 import albumentations as A
 import cv2
-from imgaug import augmenters as iaa
 import random
+import warnings
+
+# Check NumPy version and provide compatible imports
+NUMPY_VERSION = tuple(map(int, np.__version__.split('.')[:2]))
+
+# Try to import imgaug, but provide fallbacks if it fails
+try:
+    # For NumPy 2.0+, we need to monkey patch sctypes before importing imgaug
+    if NUMPY_VERSION >= (2, 0):
+        # Create a compatibility layer for np.sctypes
+        if not hasattr(np, 'sctypes'):
+            np.sctypes = {
+                "float": [np.float16, np.float32, np.float64],
+                "int": [np.int8, np.int16, np.int32, np.int64],
+                "uint": [np.uint8, np.uint16, np.uint32, np.uint64],
+                "complex": [np.complex64, np.complex128]
+            }
+        warnings.warn("Using NumPy 2.0+ compatibility layer for imgaug")
+    
+    from imgaug import augmenters as iaa
+    IMGAUG_AVAILABLE = True
+    print("Successfully imported imgaug")
+except Exception as e:
+    IMGAUG_AVAILABLE = False
+    warnings.warn(f"Failed to import imgaug: {str(e)}. Using albumentations only.")
+    # Create a dummy iaa namespace to prevent errors
+    class DummyIaa:
+        pass
+    iaa = DummyIaa()
 
 
 class SmallPlateFocusedAugmentation:

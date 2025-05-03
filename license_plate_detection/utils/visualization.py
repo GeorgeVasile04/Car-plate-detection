@@ -542,3 +542,88 @@ def visualize_batch_predictions(images, true_boxes=None, pred_boxes=None, indice
         figures.append(fig)
     
     return figures
+
+
+def plot_predictions(img, true_box, pred_box, ax=None):
+    """
+    Plot an image with true and predicted bounding boxes.
+    
+    Args:
+        img: The input image (numpy array)
+        true_box: Ground truth bounding box as [x, y, w, h] in normalized coordinates
+        pred_box: Predicted bounding box as [x, y, w, h] in normalized coordinates
+        ax: Optional matplotlib axis to plot on
+        
+    Returns:
+        IoU value between true and predicted boxes
+    """
+    import matplotlib.pyplot as plt
+    
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8, 8))
+    
+    # Display image
+    ax.imshow(img)
+    
+    # Get image dimensions
+    h, w = img.shape[:2]
+    
+    # Draw true bounding box (green)
+    x, y, width, height = true_box
+    # Convert normalized coordinates to pixel coordinates
+    x1, y1 = int(x * w), int(y * h)
+    x2, y2 = int((x + width) * w), int((y + height) * h)
+    rect = plt.Rectangle((x1, y1), x2 - x1, y2 - y1, 
+                         fill=False, edgecolor='green', linewidth=2, label='Ground Truth')
+    ax.add_patch(rect)
+    
+    # Draw predicted bounding box (red)
+    x, y, width, height = pred_box
+    # Convert normalized coordinates to pixel coordinates
+    x1, y1 = int(x * w), int(y * h)
+    x2, y2 = int((x + width) * w), int((y + height) * h)
+    rect = plt.Rectangle((x1, y1), x2 - x1, y2 - y1, 
+                         fill=False, edgecolor='red', linewidth=2, label='Prediction')
+    ax.add_patch(rect)
+    
+    # Calculate IoU
+    iou = calculate_iou(true_box, pred_box)
+    
+    # Add legend
+    ax.legend()
+    
+    # Remove axes
+    ax.set_axis_off()
+    
+    return iou
+
+
+def calculate_iou(box1, box2):
+    """Calculate IoU between two boxes in normalized coordinates."""
+    # Convert to x1, y1, x2, y2 format
+    b1_x1, b1_y1 = box1[0], box1[1]
+    b1_x2, b1_y2 = box1[0] + box1[2], box1[1] + box1[3]
+    
+    b2_x1, b2_y1 = box2[0], box2[1]
+    b2_x2, b2_y2 = box2[0] + box2[2], box2[1] + box2[3]
+    
+    # Get intersection rectangle
+    inter_x1 = max(b1_x1, b2_x1)
+    inter_y1 = max(b1_y1, b2_y1)
+    inter_x2 = min(b1_x2, b2_x2)
+    inter_y2 = min(b1_y2, b2_y2)
+    
+    # Calculate intersection area
+    inter_width = max(0, inter_x2 - inter_x1)
+    inter_height = max(0, inter_y2 - inter_y1)
+    intersection = inter_width * inter_height
+    
+    # Calculate union area
+    b1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1)
+    b2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1)
+    union = b1_area + b2_area - intersection
+    
+    # Calculate IoU
+    iou = intersection / union if union > 0 else 0
+    
+    return iou
