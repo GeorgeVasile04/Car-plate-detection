@@ -229,24 +229,47 @@ def improved_combined_detection_loss(y_true, y_pred):
     Returns:
         Combined loss value
     """
-    # Component losses
-    position_loss = tf.reduce_mean(tf.square(y_true[..., :2] - y_pred[..., :2]))  # x, y
-    size_loss = tf.reduce_mean(tf.square(y_true[..., 2:] - y_pred[..., 2:]))      # width, height
-    iou_loss = 1.0 - enhanced_iou_metric(y_true, y_pred)
-    focal_component = focal_loss_bbox(y_true, y_pred)
-    size_sensitive_component = size_sensitive_loss(y_true, y_pred)
+    # Calculate individual component losses
+    # Position loss - x, y coordinates
+    position_loss = tf.reduce_mean(tf.square(y_true[..., :2] - y_pred[..., :2]))  
     
-    # Adjusted weights based on error analysis:
-    # - Reduce position weight (from 0.3 to 0.2)
-    # - Increase size weight (from 0.2 to 0.4)
-    # - Maintain IoU weight at 0.4
-    # - Add focal and size-sensitive components
+    # Size loss with more emphasis on accuracy
+    # Apply L1 loss for sizes to be less sensitive to outliers
+    size_diff = tf.abs(y_true[..., 2:] - y_pred[..., 2:])
+    size_loss = tf.reduce_mean(size_diff + 0.5 * tf.square(size_diff))  # Huber-like loss for size
+    
+    # IoU loss for overall shape and position
+    iou_loss = 1.0 - enhanced_iou_metric(y_true, y_pred)
+    
+    # GIoU loss to better handle non-overlapping cases
+    giou_component = giou_loss(y_true, y_pred)
+    
+    # Focal loss component to focus on hard examples
+    focal_component = focal_loss_bbox(y_true, y_pred, gamma=2.5)
+    
+    # Size sensitive component with higher weight for small plates
+    # Reduce the size threshold to 0.05 to focus more on very small plates
+    size_sensitive_component = size_sensitive_loss(y_true, y_pred, size_threshold=0.05)
+    
+    # Calculate additional aspect ratio loss to maintain plate proportions
+    true_aspect = y_true[..., 2] / (y_true[..., 3] + 1e-7)  # width/height
+    pred_aspect = y_pred[..., 2] / (y_pred[..., 3] + 1e-7)
+    aspect_ratio_loss = tf.reduce_mean(tf.abs(true_aspect - pred_aspect))
+    
+    # Adjusted weights based on error analysis results:
+    # - Size given highest priority (0.4) to address the 1.6132 size error
+    # - GIoU and IoU combined given significant weight (0.3) for overall placement
+    # - Position weight reduced (0.1) as it's less problematic
+    # - Added aspect ratio loss (0.1) to maintain proper plate dimensions
+    # - Focal and size-sensitive components to handle challenging cases (0.1)
     return (
-        0.2 * position_loss +
+        0.1 * position_loss +
         0.4 * size_loss + 
-        0.2 * iou_loss + 
-        0.1 * focal_component + 
-        0.1 * size_sensitive_component
+        0.15 * iou_loss + 
+        0.15 * giou_component +
+        0.1 * aspect_ratio_loss +
+        0.05 * focal_component + 
+        0.05 * size_sensitive_component
     )
 
 
