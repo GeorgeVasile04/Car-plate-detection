@@ -13,7 +13,6 @@ from license_plate_detection.evaluation.error_analysis import (
     analyze_predictions,
     visualize_error_patterns,
     identify_error_patterns,
-    visualize_batch_predictions,
     compare_models
 )
 
