@@ -154,6 +154,102 @@ def giou_loss(y_true, y_pred):
     return tf.reduce_mean(giou_loss)
 
 
+def focal_loss_bbox(y_true, y_pred, gamma=2.0, alpha=0.25):
+    """
+    Focal loss for bounding box regression that emphasizes hard examples.
+    
+    Args:
+        y_true: Ground truth bounding boxes [x, y, width, height]
+        y_pred: Predicted bounding boxes [x, y, width, height]
+        gamma: Focusing parameter for hard examples
+        alpha: Balancing parameter
+        
+    Returns:
+        Focal loss value
+    """
+    # IoU between true and predicted boxes
+    iou = calculate_iou(y_true, y_pred)
+    
+    # Calculate focal weight
+    focal_weight = alpha * tf.pow(1.0 - iou, gamma)
+    
+    # Square error with focal weighting
+    squared_error = tf.square(y_true - y_pred)
+    
+    # Apply weights to emphasize size (width and height) components
+    component_weights = tf.constant([1.0, 1.0, 2.0, 2.0], dtype=tf.float32)  # More weight on size
+    weighted_squared_error = squared_error * component_weights
+    
+    # Apply focal weighting
+    focal_loss = focal_weight * tf.reduce_sum(weighted_squared_error, axis=-1)
+    
+    return tf.reduce_mean(focal_loss)
+
+
+def size_sensitive_loss(y_true, y_pred, size_threshold=0.1):
+    """
+    Loss function that gives higher weights to small objects.
+    
+    Args:
+        y_true: Ground truth bounding boxes [x, y, width, height]
+        y_pred: Predicted bounding boxes [x, y, width, height]
+        size_threshold: Threshold to define small objects
+        
+    Returns:
+        Size sensitive loss value
+    """
+    # Calculate box areas
+    true_areas = y_true[..., 2] * y_true[..., 3]  # width * height
+    
+    # Create weights based on size
+    small_box_weights = tf.where(
+        true_areas < size_threshold,
+        2.0,  # Higher weight for small boxes
+        1.0   # Normal weight for large boxes
+    )
+    
+    # Calculate squared errors
+    squared_error = tf.square(y_true - y_pred)
+    
+    # Apply size-based weights
+    weighted_error = tf.expand_dims(small_box_weights, axis=-1) * squared_error
+    
+    return tf.reduce_mean(tf.reduce_sum(weighted_error, axis=-1))
+
+
+def improved_combined_detection_loss(y_true, y_pred):
+    """
+    Combined loss function with improved weights based on error analysis.
+    Emphasizes size accuracy (width/height) over position (x/y).
+    
+    Args:
+        y_true: Ground truth bounding boxes [x, y, width, height]
+        y_pred: Predicted bounding boxes [x, y, width, height]
+        
+    Returns:
+        Combined loss value
+    """
+    # Component losses
+    position_loss = tf.reduce_mean(tf.square(y_true[..., :2] - y_pred[..., :2]))  # x, y
+    size_loss = tf.reduce_mean(tf.square(y_true[..., 2:] - y_pred[..., 2:]))      # width, height
+    iou_loss = 1.0 - enhanced_iou_metric(y_true, y_pred)
+    focal_component = focal_loss_bbox(y_true, y_pred)
+    size_sensitive_component = size_sensitive_loss(y_true, y_pred)
+    
+    # Adjusted weights based on error analysis:
+    # - Reduce position weight (from 0.3 to 0.2)
+    # - Increase size weight (from 0.2 to 0.4)
+    # - Maintain IoU weight at 0.4
+    # - Add focal and size-sensitive components
+    return (
+        0.2 * position_loss +
+        0.4 * size_loss + 
+        0.2 * iou_loss + 
+        0.1 * focal_component + 
+        0.1 * size_sensitive_component
+    )
+
+
 def focal_loss(y_true, y_pred, alpha=0.25, gamma=2.0):
     """
     Focal loss for imbalanced classification problems.

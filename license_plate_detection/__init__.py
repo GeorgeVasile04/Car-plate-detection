@@ -13,6 +13,15 @@ from license_plate_detection.models.detector import (
     create_mobilenet_license_plate_detector
 )
 
+from license_plate_detection.models.losses import (
+    enhanced_iou_metric,
+    combined_detection_loss,
+    giou_loss,
+    focal_loss_bbox,
+    size_sensitive_loss,
+    improved_combined_detection_loss
+)
+
 from license_plate_detection.data.loader import (
     get_data_path,
     load_license_plate_dataset,
@@ -37,4 +46,14 @@ from license_plate_detection.utils.helpers import (
     detect_license_plate,
     load_and_prepare_model,
     load_and_prepare_data
+)
+
+# Import evaluation and demo functions
+from license_plate_detection.evaluation.demo import (
+    generate_demo_predictions,
+    create_mock_comprehensive_results
+)
+
+from license_plate_detection.evaluation.evaluator import (
+    evaluate_model_comprehensive
 )

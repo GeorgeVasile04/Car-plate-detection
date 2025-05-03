@@ -1,4 +1,4 @@
-# License Plate Detection Model: Version 3 Improvements
+# License Plate Detection Model: Version 2 Improvements
 
 ## Introduction
 
