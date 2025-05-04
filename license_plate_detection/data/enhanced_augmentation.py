@@ -147,39 +147,71 @@ class SmallPlateFocusedAugmentation:
                 A.RandomFog(fog_coef_lower=0.2, fog_coef_upper=0.5, p=0.4),
                 A.RandomRain(drop_length=10, blur_value=5, p=0.3),
                 A.RandomSnow(snow_point_lower=0.1, snow_point_upper=0.3, p=0.2),
-            ], p=0.6),
-        ], bbox_params=A.BboxParams(format='coco', label_fields=['class_labels']))
-    
+            ], p=0.6),        ], bbox_params=A.BboxParams(format='coco', label_fields=['class_labels']))
     def _convert_yolo_to_coco(self, bbox, img_width, img_height):
         """
         Convert normalized YOLO format [x_center, y_center, width, height] to 
-        COCO format [x_min, y_min, width, height].
+        normalized COCO format [x_min, y_min, width, height] for albumentations.
+        
+        Albumentations expects bounding box coordinates to be normalized to [0,1]
         """
         x_center, y_center, width, height = bbox
         
-        # Convert to absolute pixels (non-normalized)
-        width_abs = width * img_width
-        height_abs = height * img_height
-        x_min = (x_center * img_width) - (width_abs / 2)
-        y_min = (y_center * img_height) - (height_abs / 2)
+        # Convert to normalized COCO format (still within 0-1 range)
+        x_min = x_center - (width / 2)
+        y_min = y_center - (height / 2)
         
-        return [x_min, y_min, width_abs, height_abs]
-    
+        # Ensure values are within valid range
+        x_min = max(0, min(x_min, 1.0 - width))
+        y_min = max(0, min(y_min, 1.0 - height))
+        width = min(width, 1.0 - x_min)
+        height = min(height, 1.0 - y_min)
+        
+        return [x_min, y_min, width, height] 
+       
     def _convert_coco_to_yolo(self, bbox, img_width, img_height):
         """
-        Convert COCO format [x_min, y_min, width, height] to 
+        Convert normalized COCO format [x_min, y_min, width, height] to 
         normalized YOLO format [x_center, y_center, width, height].
+        
+        Both formats use coordinates normalized to [0,1] range.
         """
         x_min, y_min, width, height = bbox
         
         # Convert to normalized YOLO format
-        x_center = (x_min + width / 2) / img_width
-        y_center = (y_min + height / 2) / img_height
-        width_norm = width / img_width
-        height_norm = height / img_height
+        x_center = x_min + (width / 2)
+        y_center = y_min + (height / 2)
         
-        return [x_center, y_center, width_norm, height_norm]
-    
+        # Ensure values are within valid range
+        x_center = max(0, min(x_center, 1.0))
+        y_center = max(0, min(y_center, 1.0))
+        width = max(0.01, min(width, 1.0))
+        height = max(0.01, min(height, 1.0))
+        
+        return [x_center, y_center, width, height]
+        
+    def _normalize_after_resize(self, bbox, old_shape, new_shape):
+        """
+        Adjust bounding box coordinates after image resize.
+        
+        Args:
+            bbox: Bounding box in YOLO format [x_center, y_center, width, height]
+            old_shape: Original image shape (height, width)
+            new_shape: New image shape (height, width)
+            
+        Returns:
+            Adjusted bounding box in YOLO format
+        """
+        old_h, old_w = old_shape[:2]
+        new_h, new_w = new_shape[:2]
+        
+        # No need to adjust if same size
+        if old_h == new_h and old_w == new_w:
+            return bbox
+            
+        # YOLO format already uses normalized coordinates
+        # If the normalization is consistently applied, coordinates should remain valid
+        return bbox
     def apply(self, image, bbox):
         """
         Apply data augmentation based on plate size.
@@ -192,52 +224,90 @@ class SmallPlateFocusedAugmentation:
             Tuple of (augmented image, augmented bbox in YOLO format)
         """
         h, w = image.shape[:2]
+        original_shape = image.shape
         
         # Calculate plate size as percentage of image area
         plate_area_ratio = bbox[2] * bbox[3]  # width * height (normalized)
         
         # Convert bbox from YOLO to COCO format for albumentations
-        coco_bbox = self._convert_yolo_to_coco(bbox, w, h)
-        
-        # Choose transformation based on plate size
-        if plate_area_ratio < self.small_plate_threshold:
-            # For small plates, use specialized transformations
-            if np.random.random() < self.extreme_aug_prob:
-                # Apply extreme augmentation occasionally
-                transform = self.extreme_transform
+        try:
+            coco_bbox = self._convert_yolo_to_coco(bbox, w, h)
+            
+            # Choose transformation based on plate size
+            if plate_area_ratio < self.small_plate_threshold:
+                # For small plates, use specialized transformations
+                if np.random.random() < self.extreme_aug_prob:
+                    # Apply extreme augmentation occasionally
+                    transform = self.extreme_transform
+                else:
+                    # Apply small plate focused augmentation
+                    transform = self.small_plate_transform
             else:
-                # Apply small plate focused augmentation
-                transform = self.small_plate_transform
-        else:
-            # For normal-sized plates, use standard transformations
-            transform = self.standard_transform
-        
-        # Apply the selected transformation
-        transformed = transform(image=image, bboxes=[coco_bbox], class_labels=['license_plate'])
-        
-        # Get the augmented image and bbox
-        augmented_image = transformed['image']
-        
-        # Check if bounding box is preserved (not dropped during augmentation)
-        if len(transformed['bboxes']) == 0:
-            # If bbox was lost, return original
+                # For normal-sized plates, use standard transformations
+                transform = self.standard_transform
+            
+            # Apply the selected transformation with proper error handling
+            try:
+                transformed = transform(image=image, bboxes=[coco_bbox], class_labels=['license_plate'])
+                
+                # Get the augmented image and bbox
+                augmented_image = transformed['image']
+                
+                # Check if bounding box is preserved (not dropped during augmentation)
+                if len(transformed['bboxes']) == 0:
+                    # If bbox was lost, return original
+                    return image, bbox
+                
+                augmented_coco_bbox = transformed['bboxes'][0]
+                
+                # Convert back to YOLO format
+                h_new, w_new = augmented_image.shape[:2]
+                augmented_bbox = self._convert_coco_to_yolo(augmented_coco_bbox, w_new, h_new)                # Ensure the augmented image has the same dimensions as the original
+                if augmented_image.shape[:2] != (h, w):
+                    # Store current dimensions and bbox before resize
+                    h_aug, w_aug = augmented_image.shape[:2]
+                    pre_resize_bbox = augmented_bbox
+                    
+                    # Resize the image
+                    augmented_image = cv2.resize(augmented_image, (w, h))
+                    
+                    # Adjust the bounding box for the resize
+                    # YOLO format is already normalized, so the positions should be preserved
+                    # However, very extreme transformations might need minor adjustments
+                    augmented_bbox = self._normalize_after_resize(
+                        pre_resize_bbox,
+                        (h_aug, w_aug),
+                        (h, w)
+                    )
+                
+                # Ensure we have the same number of channels
+                if len(augmented_image.shape) != len(original_shape) or augmented_image.shape[2] != original_shape[2]:
+                    # Handle channel mismatches
+                    if len(original_shape) == 3 and len(augmented_image.shape) == 2:
+                        # Convert grayscale to RGB if needed
+                        augmented_image = cv2.cvtColor(augmented_image, cv2.COLOR_GRAY2RGB)
+                    elif len(original_shape) == 2 and len(augmented_image.shape) == 3:
+                        # Convert RGB to grayscale if needed
+                        augmented_image = cv2.cvtColor(augmented_image, cv2.COLOR_RGB2GRAY)
+                    elif len(original_shape) == 3 and len(augmented_image.shape) == 3:
+                        # Convert between color spaces if needed
+                        if original_shape[2] == 1 and augmented_image.shape[2] == 3:
+                            augmented_image = cv2.cvtColor(augmented_image, cv2.COLOR_RGB2GRAY)
+                            augmented_image = augmented_image[:, :, np.newaxis]
+                        elif original_shape[2] == 3 and augmented_image.shape[2] == 1:
+                            augmented_image = cv2.cvtColor(augmented_image, cv2.COLOR_GRAY2RGB)
+                
+                return augmented_image, augmented_bbox
+                
+            except (ValueError, IndexError) as e:
+                # In case of transformation error, return original
+                print(f"Warning: Transformation failed: {e}. Using original image.")
+                return image, bbox
+                
+        except Exception as e:
+            # If anything goes wrong, return original
+            print(f"Warning: Augmentation error: {e}. Using original image.")
             return image, bbox
-        
-        augmented_coco_bbox = transformed['bboxes'][0]
-        
-        # Convert back to YOLO format
-        h_new, w_new = augmented_image.shape[:2]
-        augmented_bbox = self._convert_coco_to_yolo(augmented_coco_bbox, w_new, h_new)
-        
-        # Ensure bbox coordinates are valid
-        augmented_bbox = [
-            min(max(augmented_bbox[0], 0.0), 1.0),
-            min(max(augmented_bbox[1], 0.0), 1.0),
-            min(max(augmented_bbox[2], 0.01), 1.0),
-            min(max(augmented_bbox[3], 0.01), 1.0)
-        ]
-        
-        return augmented_image, augmented_bbox
 
 
 def augment_data_with_small_plate_focus(images, bboxes, augmentation_factor=3):
@@ -291,8 +361,7 @@ def augment_data_with_small_plate_focus(images, bboxes, augmentation_factor=3):
     
     # Calculate total number of augmentations to generate
     total_augmentations = base_aug_per_image * len(images)
-    
-    # Randomly select images for augmentation, with higher probability for small plates
+      # Randomly select images for augmentation, with higher probability for small plates
     aug_indices = np.random.choice(
         np.arange(len(images)), 
         size=total_augmentations, 
@@ -309,15 +378,64 @@ def augment_data_with_small_plate_focus(images, bboxes, augmentation_factor=3):
         if aug_counter[idx] >= (small_plate_boost * base_aug_per_image if idx in small_plate_indices else base_aug_per_image):
             continue
         
-        # Apply augmentation
-        aug_img, aug_bbox = augmenter.apply(images[idx], bboxes[idx])
+        try:
+            # Apply augmentation
+            aug_img, aug_bbox = augmenter.apply(images[idx], bboxes[idx])
+            
+            # Verify the augmented image is valid and has the right shape/type
+            if aug_img is None or aug_img.size == 0:
+                print(f"Warning: Augmentation returned empty image for index {idx}. Skipping.")
+                continue
+                
+            # Add to augmented dataset
+            X_aug.append(aug_img)
+            y_aug.append(aug_bbox)
+            
+            # Increment counter
+            aug_counter[idx] += 1
+            
+        except Exception as e:
+            print(f"Warning: Failed to augment image at index {idx}: {str(e)}. Skipping.")
+            continue
+      # Check if all images have the same shape
+    shapes = [img.shape for img in X_aug]
+    unique_shapes = set(tuple(shape) for shape in shapes)
+      # If images have different shapes, resize them to match the original image dimensions
+    if len(unique_shapes) > 1:
+        print(f"Detected {len(unique_shapes)} different image shapes: {unique_shapes}")
+        print("Resizing all augmented images to consistent dimensions...")
         
-        # Add to augmented dataset
-        X_aug.append(aug_img)
-        y_aug.append(aug_bbox)
+        # Get the target shape from the original images
+        target_shape = images[0].shape
         
-        # Increment counter
-        aug_counter[idx] += 1
+        # Resize all augmented images to match the target shape
+        for i in range(len(X_aug)):
+            if X_aug[i].shape != target_shape:
+                # Get current dimensions before resize
+                curr_h, curr_w = X_aug[i].shape[:2]
+                target_h, target_w = target_shape[:2]
+                  # Store the bounding box before resizing
+                curr_bbox = y_aug[i].copy()
+                
+                # Resize the image while preserving the channels
+                X_aug[i] = cv2.resize(X_aug[i], (target_w, target_h))
+                
+                # When we resize an image, we need to ensure the bounding box is still properly normalized
+                # Since we're using YOLO format (normalized), the values should remain valid
+                # However, we'll ensure they're within proper bounds
+                y_aug[i] = np.clip(y_aug[i], 0.0, 1.0)
+                
+                # Ensure the resized image has the correct number of channels
+                if len(X_aug[i].shape) == 2 and len(target_shape) == 3:
+                    # Grayscale to RGB
+                    X_aug[i] = cv2.cvtColor(X_aug[i], cv2.COLOR_GRAY2RGB)
+                elif len(X_aug[i].shape) == 3 and X_aug[i].shape[2] != target_shape[2]:
+                    # Fix channel mismatch
+                    if target_shape[2] == 3 and X_aug[i].shape[2] == 1:
+                        X_aug[i] = cv2.cvtColor(X_aug[i], cv2.COLOR_GRAY2RGB)
+                    elif target_shape[2] == 1 and X_aug[i].shape[2] == 3:
+                        X_aug[i] = cv2.cvtColor(X_aug[i], cv2.COLOR_RGB2GRAY)
+                        X_aug[i] = X_aug[i][:, :, np.newaxis]
     
     # Convert lists to numpy arrays
     X_aug = np.array(X_aug)
