@@ -56,7 +56,7 @@ def create_license_plate_detector(input_shape=(224, 224, 3)):
     return model
 
 
-def create_enhanced_license_plate_detector(input_shape=(416, 416, 3)):
+def create_enhanced_license_plate_detector(input_shape=(240, 240, 3)):
     """
     Create an enhanced CNN-based license plate detector with advanced architecture.
     Optimized to ~23M parameters for improved feature extraction and detection.

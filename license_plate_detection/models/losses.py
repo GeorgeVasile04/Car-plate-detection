@@ -17,16 +17,20 @@ def calculate_iou(boxes1, boxes2):
     Returns:
         Tensor of shape (batch_size,) containing IoU values for each box pair
     """
-    # Convert boxes from [x, y, w, h] to [x1, y1, x2, y2] format
-    boxes1_x1 = boxes1[:, 0] - boxes1[:, 2] / 2
-    boxes1_y1 = boxes1[:, 1] - boxes1[:, 3] / 2
-    boxes1_x2 = boxes1[:, 0] + boxes1[:, 2] / 2
-    boxes1_y2 = boxes1[:, 1] + boxes1[:, 3] / 2
+    # Ensure both inputs have the same data type by casting to float32
+    boxes1 = tf.cast(boxes1, tf.float32)
+    boxes2 = tf.cast(boxes2, tf.float32)
     
-    boxes2_x1 = boxes2[:, 0] - boxes2[:, 2] / 2
-    boxes2_y1 = boxes2[:, 1] - boxes2[:, 3] / 2
-    boxes2_x2 = boxes2[:, 0] + boxes2[:, 2] / 2
-    boxes2_y2 = boxes2[:, 1] + boxes2[:, 3] / 2
+    # Convert [x_center, y_center, width, height] to [x1, y1, x2, y2]
+    boxes1_x1 = boxes1[..., 0] - boxes1[..., 2] / 2
+    boxes1_y1 = boxes1[..., 1] - boxes1[..., 3] / 2
+    boxes1_x2 = boxes1[..., 0] + boxes1[..., 2] / 2
+    boxes1_y2 = boxes1[..., 1] + boxes1[..., 3] / 2
+    
+    boxes2_x1 = boxes2[..., 0] - boxes2[..., 2] / 2
+    boxes2_y1 = boxes2[..., 1] - boxes2[..., 3] / 2
+    boxes2_x2 = boxes2[..., 0] + boxes2[..., 2] / 2
+    boxes2_y2 = boxes2[..., 1] + boxes2[..., 3] / 2
     
     # Calculate intersection area
     intersect_x1 = tf.maximum(boxes1_x1, boxes2_x1)
@@ -39,8 +43,8 @@ def calculate_iou(boxes1, boxes2):
     intersection = intersect_width * intersect_height
     
     # Calculate union area
-    boxes1_area = boxes1[:, 2] * boxes1[:, 3]
-    boxes2_area = boxes2[:, 2] * boxes2[:, 3]
+    boxes1_area = boxes1[..., 2] * boxes1[..., 3]
+    boxes2_area = boxes2[..., 2] * boxes2[..., 3]
     union = boxes1_area + boxes2_area - intersection
     
     # Calculate IoU
