@@ -6,60 +6,10 @@ import tensorflow as tf
 from tensorflow.keras import layers, models, applications
 
 
-def create_license_plate_detector(input_shape=(224, 224, 3)):
-    """
-    Create a basic CNN-based license plate detector.
-    Optimized version with ~8M parameters for Google Colab compatibility.
-    
-    Args:
-        input_shape: Input image shape (height, width, channels)
-        
-    Returns:
-        tf.keras.Model: A compiled license plate detector model
-    """
-    # Input layer
-    inputs = layers.Input(shape=input_shape)
-    
-    # Feature extraction - Reduced number of filters and added BatchNormalization
-    # First block - keep 32 filters for initial feature extraction
-    x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2, 2))(x)
-    
-    # Second block - keep 64 filters
-    x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2, 2))(x)
-    
-    # Third block - reduced from 128 to 128 filters
-    x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2, 2))(x)
-    
-    # Fourth block 
-    x = layers.Conv2D(256, (3, 3), activation='relu', padding='same')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D((2, 2))(x)
-    
-    # Add global pooling to reduce parameters
-    x = layers.GlobalAveragePooling2D()(x)
-    
-    # Bounding box regression - significantly reduced dense layer size
-    x = layers.Dense(256, activation='relu')(x) 
-    x = layers.Dropout(0.5)(x)
-    x = layers.Dense(128, activation='relu')(x)  
-    outputs = layers.Dense(4, activation='sigmoid')(x)  # x, y, w, h (normalized)
-    
-    # Create model
-    model = models.Model(inputs=inputs, outputs=outputs)
-    
-    return model
-
-
-def create_enhanced_license_plate_detector(input_shape=(240, 240, 3)):
+def create_enhanced_license_plate_detector(input_shape=(224, 224, 3)):
     """
     Create an enhanced CNN-based license plate detector with advanced architecture.
-    Optimized to ~23M parameters for improved feature extraction and detection.
+    Optimized to ~12M parameters for improved feature extraction and detection.
     Uses wider and deeper networks with multi-scale feature extraction.
     
     Args:
